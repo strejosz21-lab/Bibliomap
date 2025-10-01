@@ -8,37 +8,27 @@ import logging
 # --- Config ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(BASE_DIR, "data", "Biblioteca MHC.xlsx")
-TEMPLATE_FOLDER = os.path.join(BASE_DIR, "plantillas")
-STATIC_FOLDER = os.path.join(BASE_DIR, "estático")
 
-app = Flask(__name__, template_folder=TEMPLATE_FOLDER, static_folder=STATIC_FOLDER)
+# Flask por defecto busca en "templates" y "static"
+app = Flask(__name__, template_folder="templates", static_folder="static")
 app.logger.setLevel(logging.INFO)
 
 # --- Utilities to parse Dewey-like numbers ---
 def extract_first_dewey_token(s):
-    """Extrae la primera coincidencia numérica como token (ej '001.42' -> '001.42')"""
     if not isinstance(s, str):
         return None
     m = re.search(r'\d+(?:\.\d+)?', s)
     return m.group(0) if m else None
 
 def dewey_to_float(tok):
-    """Convierte '001.42' -> 1.42 (float) para comparar rangos.
-       Si tok es None devuelve None.
-    """
     if not tok:
         return None
     try:
-        # algunos valores pueden tener ceros a la izquierda; float los normaliza
         return float(tok)
     except Exception:
         return None
 
 def parse_range_cell(cell_text):
-    """
-    Interpreta una celda que puede tener '001.2 M67s - 001.42 C27m' o '001.2-001.42' o '001.2'
-    Devuelve (start_float, end_float, raw_text)
-    """
     raw = "" if pd.isna(cell_text) else str(cell_text).strip()
     if raw == "":
         return (None, None, raw)
@@ -47,15 +37,11 @@ def parse_range_cell(cell_text):
     end_tok = extract_first_dewey_token(parts[-1]) if len(parts) > 1 else None
     start = dewey_to_float(start_tok)
     end = dewey_to_float(end_tok) if end_tok else start
-    # si ambos existen y están invertidos, corregir
-    try:
-        if start is not None and end is not None and start > end:
-            start, end = end, start
-    except Exception:
-        pass
+    if start is not None and end is not None and start > end:
+        start, end = end, start
     return (start, end, raw)
 
-# --- Cargar y parsear Excel a mapping ---
+# --- Load Excel ---
 def load_mapping_from_excel(path=DATA_PATH):
     if not os.path.exists(path):
         app.logger.error(f"Excel not found at {path}")
@@ -67,13 +53,11 @@ def load_mapping_from_excel(path=DATA_PATH):
         app.logger.exception("Error reading Excel")
         return {"error": "excel_read_error", "details": str(e)}
 
-    # localizar columnas que contienen "ANAQUEL" (variantes mayúsc/minúsc)
     anaquel_cols = [c for c in sheet.columns if 'ANAQUEL' in str(c).upper() or 'ANAQUE' in str(c).upper()]
     if not anaquel_cols:
-        
         anaquel_cols = list(sheet.columns[1:6])
 
-    estante_col = sheet.columns[0] 
+    estante_col = sheet.columns[0]
     rows = []
     for idx, row in sheet.iterrows():
         estante_label_raw = row[estante_col]
@@ -100,11 +84,12 @@ def load_mapping_from_excel(path=DATA_PATH):
     total_anaqueles = max((r["anaquel"] for r in rows), default=0)
     return {"rows": rows, "max_estante": int(max_estante), "total_anaqueles": int(total_anaqueles)}
 
-
 MAPPING_CACHE = load_mapping_from_excel(DATA_PATH)
-app.logger.info("Mapping loaded: estantes=%s anaqueles=%s", MAPPING_CACHE.get("max_estante"), MAPPING_CACHE.get("total_anaqueles"))
+app.logger.info("Mapping loaded: estantes=%s anaqueles=%s",
+                MAPPING_CACHE.get("max_estante"),
+                MAPPING_CACHE.get("total_anaqueles"))
 
-
+# --- Routes ---
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -113,11 +98,9 @@ def index():
 def mapping_json():
     return jsonify(MAPPING_CACHE)
 
-
-@app.route('/estatico/<path:p>')
+@app.route('/static/<path:p>')
 def serve_static(p):
-    return send_from_directory(STATIC_FOLDER, p)
+    return send_from_directory(app.static_folder, p)
 
 if __name__ == "__main__":
-    
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
