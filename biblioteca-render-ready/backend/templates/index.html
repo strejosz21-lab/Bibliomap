@@ -1,27 +1,82 @@
 <!doctype html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8"/>
-  <title>Mapa — Biblioteca</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mapa Interactivo — Biblioteca</title>
+
+  <!-- Tailwind CDN (rápido, sin build) -->
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Fuse.js para búsqueda difusa (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
+
   <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 </head>
-<body class="bg-gray-50 p-6 text-gray-800">
-  <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow-md space-y-6">
-    <h1 class="text-2xl font-bold">📚 Mapa interactivo — Biblioteca</h1>
+<body class="bg-slate-50 text-slate-800">
+  <div class="min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="bg-white shadow-sm">
+      <div class="max-w-7xl mx-auto px-4 py-4 flex items-center gap-4">
+        <h1 class="text-2xl font-semibold">📚 Biblioteca MHC — Mapa Interactivo</h1>
+        <p class="text-sm text-slate-500">Busca por número Dewey y te muestro dónde está.</p>
+      </div>
+    </header>
 
-    <div class="flex gap-3">
-      <input id="codigo" type="text" placeholder="Ej: 001.42 o 005.133"
-             class="flex-1 border px-3 py-2 rounded-md" />
-      <button id="btnBuscar" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md">Buscar</button>
-      <button id="btnLimpiar" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-md">Limpiar</button>
-    </div>
+    <!-- Main -->
+    <main class="flex-1 max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <!-- Left: Controles -->
+      <section class="col-span-1 lg:col-span-1 space-y-4">
+        <div class="bg-white p-4 rounded-xl shadow-sm">
+          <label class="block text-sm font-medium text-slate-600">Buscar (ej. 001.42 o 001)</label>
+          <div class="mt-2 flex gap-2">
+            <input id="searchInput" class="flex-1 border rounded-md px-3 py-2 focus:ring-2 focus:ring-orange-400" placeholder="Ej: 001.42 o '001' - soporta búsqueda parcial" aria-label="Buscar clasificación Dewey" />
+            <button id="btnSearch" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md">Buscar</button>
+            <button id="btnClear" class="bg-gray-100 px-3 py-2 rounded-md">Limpiar</button>
+          </div>
 
-    <div id="info" class="text-sm text-gray-600">Ingresa un código Dewey y presiona Buscar.</div>
+          <div class="mt-3 text-sm text-slate-600" id="infoBox">Ingresa un código Dewey para buscar.</div>
+        </div>
 
-    <div id="mapWrapper" class="overflow-auto border rounded-lg" style="min-height:440px;">
-      <svg id="mapaSvg" width="100%" height="800" preserveAspectRatio="xMidYMid meet"></svg>
-    </div>
+        <!-- Matches / resultados -->
+        <div class="bg-white p-4 rounded-xl shadow-sm" id="matchesBox" aria-live="polite">
+          <h2 class="font-semibold mb-2">Resultados</h2>
+          <ul id="matchesList" class="space-y-2 text-sm text-slate-700"></ul>
+        </div>
+
+        <!-- Leyenda -->
+        <div class="bg-white p-4 rounded-xl shadow-sm">
+          <h2 class="font-semibold mb-2">Leyenda por sección (Dewey)</h2>
+          <div id="legend" class="grid grid-cols-2 gap-2 text-sm"></div>
+        </div>
+      </section>
+
+      <!-- Center: mapa -->
+      <section class="col-span-2 bg-white rounded-xl shadow-sm p-3 overflow-hidden">
+        <div class="flex items-center justify-between mb-2 gap-2">
+          <div class="text-sm text-slate-600">Mapa de estantes (arrastra para desplazar, usa botones para centrar)</div>
+          <div class="flex gap-2">
+            <button id="zoomIn" class="px-3 py-1 bg-slate-100 rounded">+</button>
+            <button id="zoomOut" class="px-3 py-1 bg-slate-100 rounded">−</button>
+            <button id="fitAll" class="px-3 py-1 bg-slate-100 rounded">Ajustar todo</button>
+          </div>
+        </div>
+
+        <div id="svgContainer" class="border rounded-lg overflow-auto" style="height:620px; position:relative;">
+          <svg id="mapSvg" width="1600" height="1200" preserveAspectRatio="xMidYMid meet" tabindex="0" role="img" aria-label="Mapa de la biblioteca"></svg>
+        </div>
+
+        <!-- Sidebar info (slide over) -->
+        <aside id="sideInfo" class="fixed right-6 bottom-6 w-80 bg-white rounded-xl shadow-lg p-4 hidden z-50">
+          <button id="closeSide" class="text-sm text-slate-500 float-right">Cerrar ×</button>
+          <div id="sideContent" class="mt-2 text-sm text-slate-700"></div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="text-center text-xs text-slate-400 py-4">
+      Mapa dinámico generado a partir de la base de datos. Diseño por tu equipo.
+    </footer>
   </div>
 
   <script src="{{ url_for('static', filename='main.js') }}"></script>
