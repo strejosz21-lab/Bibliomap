@@ -1,15 +1,36 @@
+/* main.css: estilos para el mapa SVG y UI */
 .rect-anaquel {
   fill: #f3f4f6;
   stroke: #e5e7eb;
   stroke-width: 1;
   rx: 6;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+.rect-anaquel:hover {
+  fill: #eef2ff;
 }
 .label {
   font-size: 11px;
   fill: #374151;
+  pointer-events: none;
+  user-select: none;
 }
 .highlight {
   fill: #f97316 !important;
   filter: drop-shadow(0 8px 24px rgba(249,115,22,0.24));
   transition: all 250ms ease;
+  stroke: #c2410c;
+  stroke-width: 1.5;
+}
+.tooltip {
+  position: absolute;
+  background: white;
+  border: 1px solid #e5e7eb;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(15,23,42,0.08);
+  pointer-events: none;
+  z-index: 50;
 }
