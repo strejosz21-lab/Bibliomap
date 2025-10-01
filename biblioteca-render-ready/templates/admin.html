@@ -1,1 +1,10 @@
-<!doctype html><html><head><meta charset="utf-8"/><title>Admin</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-white p-6 text-gray-800"><div class="max-w-3xl mx-auto bg-white p-6 rounded shadow"><h1 class="text-xl font-semibold mb-4">Admin — Importar datos</h1>{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat,msg in messages %}<div class="p-2 mb-2 rounded {{ 'bg-green-100' if cat=='success' else 'bg-red-100' }}">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}<form method="post" enctype="multipart/form-data"><label class="block mb-2">Subir Excel (opcional)</label><input type="file" name="excel_file" class="mb-4"/><label class="block mb-2">Subir mapping.csv (opcional)</label><input type="file" name="mapping_file" class="mb-4"/><div class="flex gap-2"><button class="bg-orange-500 text-white px-4 py-2 rounded">Subir y Reimportar</button><a href="/" class="px-4 py-2 border rounded">Volver</a></div></form><div class="mt-4 text-sm text-gray-600"><p>Excel presente: {{ 'Sí' if excel_exists else 'No' }}</p><p>Mapping presente: {{ 'Sí' if mapping_exists else 'No' }}</p></div></div></body></html>
+<!-- plantillas/index.html -->
+<div class="contenedor-mapa">
+  <div id="mapa"></div>
+
+  <div class="panel-busqueda">
+    <input id="codigo" type="text" placeholder="Código Dewey (ej: 001.42)">
+    <button onclick="buscarLibro()">Buscar</button>
+    <div id="info">Ingresa un código Dewey y presiona Buscar.</div>
+  </div>
+</div>
