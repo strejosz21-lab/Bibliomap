@@ -1,36 +1,58 @@
-/* main.css: estilos para el mapa SVG y UI */
+/* main.css - estilos para mapa y efectos */
+/* Mantén Tailwind para layout; aquí van estilos específicos SVG/tooltip */
+
 .rect-anaquel {
   fill: #f3f4f6;
-  stroke: #e5e7eb;
+  stroke: #e6e9ef;
   stroke-width: 1;
-  rx: 6;
+  rx: 8;
   cursor: pointer;
-  transition: all 180ms ease;
+  transition: transform 220ms ease, filter 220ms ease;
+  transform-origin: center;
 }
+
 .rect-anaquel:hover {
-  fill: #eef2ff;
+  transform: translateY(-4px);
+  filter: drop-shadow(0 6px 18px rgba(15,23,42,0.08));
 }
+
 .label {
-  font-size: 11px;
-  fill: #374151;
+  font-size: 12px;
+  fill: #1f2937; /* slate-800 */
   pointer-events: none;
-  user-select: none;
+  font-weight: 600;
 }
+
 .highlight {
   fill: #f97316 !important;
-  filter: drop-shadow(0 8px 24px rgba(249,115,22,0.24));
-  transition: all 250ms ease;
   stroke: #c2410c;
-  stroke-width: 1.5;
+  stroke-width: 1.6;
+  filter: drop-shadow(0 12px 30px rgba(249,115,22,0.18));
+  transition: all 320ms cubic-bezier(.2,.9,.3,1);
+  animation: pulse 1.6s infinite;
 }
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.04); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* tooltip on body */
 .tooltip {
   position: absolute;
   background: white;
-  border: 1px solid #e5e7eb;
-  padding: 8px;
-  border-radius: 8px;
+  border: 1px solid #e6e9ef;
+  padding: 8px 10px;
+  border-radius: 10px;
   font-size: 13px;
-  box-shadow: 0 6px 20px rgba(15,23,42,0.08);
+  box-shadow: 0 8px 30px rgba(15,23,42,0.06);
   pointer-events: none;
-  z-index: 50;
+  z-index: 60;
+  max-width: 300px;
+}
+
+/* small responsive tweaks */
+@media (max-width: 1024px) {
+  #svgContainer { height: 520px !important; }
 }
