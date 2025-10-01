@@ -1,92 +1,123 @@
-
+# app.py
+from flask import Flask, render_template, jsonify, send_from_directory
+import pandas as pd
 import re
-import sqlite3
 import os
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
-from pathlib import Path
-from scripts.parse_excel import load_and_parse
+import logging
 
-# --- Rutas y archivos base ---
-BASE = Path(__file__).resolve().parent
-DATA = BASE / "data"
-DB = BASE / "db" / "biblioteca.db"
+# --- Config ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "data", "Biblioteca MHC.xlsx")
+TEMPLATE_FOLDER = os.path.join(BASE_DIR, "plantillas")
+STATIC_FOLDER = os.path.join(BASE_DIR, "estático")
 
-# --- Configuración Flask ---
-app = Flask(
-    __name__,
-    template_folder=str(BASE.parent / "templates"),
-    static_folder=str(BASE.parent / "static")
-)
-app.secret_key = os.environ.get("FLASK_SECRET", "secret")
+app = Flask(__name__, template_folder=TEMPLATE_FOLDER, static_folder=STATIC_FOLDER)
+app.logger.setLevel(logging.INFO)
 
-# --- Función para consultar la base de datos ---
-def query(val):
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-    c.execute(
-        "SELECT pasillo, lado, estanteria, anaquel, raw_text "
-        "FROM locations "
-        "WHERE rango_inicio <= ? AND rango_fin >= ? LIMIT 1",
-        (val, val)
-    )
-    result = c.fetchone()
-    conn.close()
-    return result
+# --- Utilities to parse Dewey-like numbers ---
+def extract_first_dewey_token(s):
+    """Extrae la primera coincidencia numérica como token (ej '001.42' -> '001.42')"""
+    if not isinstance(s, str):
+        return None
+    m = re.search(r'\d+(?:\.\d+)?', s)
+    return m.group(0) if m else None
 
-# --- Rutas de Flask ---
+def dewey_to_float(tok):
+    """Convierte '001.42' -> 1.42 (float) para comparar rangos.
+       Si tok es None devuelve None.
+    """
+    if not tok:
+        return None
+    try:
+        # algunos valores pueden tener ceros a la izquierda; float los normaliza
+        return float(tok)
+    except Exception:
+        return None
+
+def parse_range_cell(cell_text):
+    """
+    Interpreta una celda que puede tener '001.2 M67s - 001.42 C27m' o '001.2-001.42' o '001.2'
+    Devuelve (start_float, end_float, raw_text)
+    """
+    raw = "" if pd.isna(cell_text) else str(cell_text).strip()
+    if raw == "":
+        return (None, None, raw)
+    parts = re.split(r'\s*-\s*', raw)
+    start_tok = extract_first_dewey_token(parts[0])
+    end_tok = extract_first_dewey_token(parts[-1]) if len(parts) > 1 else None
+    start = dewey_to_float(start_tok)
+    end = dewey_to_float(end_tok) if end_tok else start
+    # si ambos existen y están invertidos, corregir
+    try:
+        if start is not None and end is not None and start > end:
+            start, end = end, start
+    except Exception:
+        pass
+    return (start, end, raw)
+
+# --- Cargar y parsear Excel a mapping ---
+def load_mapping_from_excel(path=DATA_PATH):
+    if not os.path.exists(path):
+        app.logger.error(f"Excel not found at {path}")
+        return {"error": "excel_not_found", "path": path}
+    try:
+        xl = pd.ExcelFile(path)
+        sheet = xl.parse(xl.sheet_names[0])
+    except Exception as e:
+        app.logger.exception("Error reading Excel")
+        return {"error": "excel_read_error", "details": str(e)}
+
+    # localizar columnas que contienen "ANAQUEL" (variantes mayúsc/minúsc)
+    anaquel_cols = [c for c in sheet.columns if 'ANAQUEL' in str(c).upper() or 'ANAQUE' in str(c).upper()]
+    if not anaquel_cols:
+        
+        anaquel_cols = list(sheet.columns[1:6])
+
+    estante_col = sheet.columns[0] 
+    rows = []
+    for idx, row in sheet.iterrows():
+        estante_label_raw = row[estante_col]
+        estante_num = None
+        if isinstance(estante_label_raw, str):
+            m = re.search(r'(\d+)', estante_label_raw)
+            if m:
+                estante_num = int(m.group(1))
+        if estante_num is None:
+            estante_num = int(idx) + 1
+
+        for j, col in enumerate(anaquel_cols, start=1):
+            cell = row[col] if col in row else ""
+            start, end, raw = parse_range_cell(cell)
+            rows.append({
+                "estante": estante_num,
+                "anaquel": j,
+                "raw": raw,
+                "start": start,
+                "end": end
+            })
+
+    max_estante = max((r["estante"] for r in rows if r["estante"] is not None), default=0)
+    total_anaqueles = max((r["anaquel"] for r in rows), default=0)
+    return {"rows": rows, "max_estante": int(max_estante), "total_anaqueles": int(total_anaqueles)}
+
+
+MAPPING_CACHE = load_mapping_from_excel(DATA_PATH)
+app.logger.info("Mapping loaded: estantes=%s anaqueles=%s", MAPPING_CACHE.get("max_estante"), MAPPING_CACHE.get("total_anaqueles"))
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
 
-@app.route("/api/search")
-def api_search():
-    q = request.args.get("q", "").strip()
-    if not q:
-        return jsonify({"ok": False, "error": "Vacio"})
+@app.route("/mapping.json")
+def mapping_json():
+    return jsonify(MAPPING_CACHE)
 
-    m = re.search(r'(\d{1,3}(?:\.\d+)?)', q)
-    if m:
-        val = float(m.group(1))
-        r = query(val)
-        if r:
-            pas, l, est, ana, raw = r
-            return jsonify({
-                "ok": True,
-                "type": "dewey",
-                "pasillo": pas,
-                "lado": l,
-                "estanteria": est,
-                "anaquel": ana,
-                "raw": raw
-            })
-    return jsonify({"ok": False, "error": "No encontrado"})
 
-@app.route("/admin", methods=["GET", "POST"])
-def admin():
-    if request.method == "POST":
-        ef = request.files.get("excel_file")
-        mf = request.files.get("mapping_file")
-        if ef:
-            ef.save(DATA / "Biblioteca MHC.xlsx")
-        if mf:
-            mf.save(DATA / "mapping.csv")
-        try:
-            load_and_parse()
-            flash("Import ok", "success")
-        except Exception as e:
-            flash(f"Error: {e}", "danger")
-        return redirect(url_for("admin"))
+@app.route('/estatico/<path:p>')
+def serve_static(p):
+    return send_from_directory(STATIC_FOLDER, p)
 
-    return render_template(
-        "admin.html",
-        excel_exists=(DATA / "Biblioteca MHC.xlsx").exists(),
-        mapping_exists=(DATA / "mapping.csv").exists()
-    )
-
-# --- Ejecutar localmente ---
 if __name__ == "__main__":
-    try:
-        load_and_parse()
-    except Exception as e:
-        print("Parse warning:", e)
-    app.run(host="0.0.0.0", debug=True)
+    
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
