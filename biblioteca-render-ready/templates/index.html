@@ -2,126 +2,28 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Admin — Biblioteca</title>
+  <title>Mapa — Biblioteca</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    .rect-anaquel {
-      fill: #f3f4f6;
-      stroke: #e5e7eb;
-      stroke-width: 1;
-      rx: 6;
-      cursor: pointer;
-      transition: all 200ms ease;
-    }
-    .rect-anaquel:hover {
-      fill: #e0e7ff;
-    }
-    .label {
-      font-size: 11px;
-      fill: #374151;
-      pointer-events: none;
-    }
-    .highlight {
-      fill: #f97316 !important;
-      filter: drop-shadow(0 8px 24px rgba(249,115,22,0.24));
-      transition: all 250ms ease;
-    }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 </head>
 <body class="bg-gray-50 p-6 text-gray-800">
-  <div class="max-w-5xl mx-auto bg-white p-6 rounded-2xl shadow-md space-y-6">
-    <h1 class="text-2xl font-bold mb-4">📚 Mapa interactivo — Biblioteca</h1>
+  <div class="max-w-6xl mx-auto bg-white p-6 rounded-2xl shadow-md space-y-6">
+    <h1 class="text-2xl font-bold">📚 Mapa interactivo — Biblioteca</h1>
 
-    <!-- Panel de búsqueda -->
-    <div class="flex items-center gap-2">
-      <input id="codigo" type="text" placeholder="Código Dewey (ej: 001.42)"
-             class="flex-1 border px-3 py-2 rounded-md"/>
-      <button onclick="buscarLibro()"
-              class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md">
-        Buscar
-      </button>
-      <button onclick="limpiarBusqueda()"
-              class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-md">
-        Limpiar
-      </button>
+    <div class="flex gap-3">
+      <input id="codigo" type="text" placeholder="Ej: 001.42 o 005.133"
+             class="flex-1 border px-3 py-2 rounded-md" />
+      <button id="btnBuscar" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md">Buscar</button>
+      <button id="btnLimpiar" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-md">Limpiar</button>
     </div>
 
-    <!-- Info -->
-    <div id="info" class="text-sm text-gray-600">
-      Ingresa un código Dewey y presiona Buscar.
-    </div>
+    <div id="info" class="text-sm text-gray-600">Ingresa un código Dewey y presiona Buscar.</div>
 
-    <!-- SVG del mapa -->
-    <div class="overflow-x-auto border rounded-lg">
-      <svg id="mapa" width="100%" height="400"></svg>
+    <div id="mapWrapper" class="overflow-auto border rounded-lg" style="min-height:440px;">
+      <svg id="mapaSvg" width="100%" height="800" preserveAspectRatio="xMidYMid meet"></svg>
     </div>
   </div>
 
-  <script>
-    const filas = 4;
-    const columnas = 8;
-    const ancho = 80;
-    const alto = 50;
-    const espacio = 10;
-
-    const svg = document.getElementById("mapa");
-
-    // Generar el mapa
-    for (let f = 0; f < filas; f++) {
-      for (let c = 0; c < columnas; c++) {
-        const x = c * (ancho + espacio) + 40;
-        const y = f * (alto + espacio) + 40;
-
-        // Rectángulo
-        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        rect.setAttribute("x", x);
-        rect.setAttribute("y", y);
-        rect.setAttribute("width", ancho);
-        rect.setAttribute("height", alto);
-        rect.setAttribute("class", "rect-anaquel");
-        rect.setAttribute("id", `F${f+1}-A${c+1}`);
-        svg.appendChild(rect);
-
-        // Texto
-        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        text.setAttribute("x", x + ancho/2);
-        text.setAttribute("y", y + alto/2 + 4);
-        text.setAttribute("text-anchor", "middle");
-        text.setAttribute("class", "label");
-        text.textContent = `F${f+1}-A${c+1}`;
-        svg.appendChild(text);
-      }
-    }
-
-    function buscarLibro() {
-      const codigo = document.getElementById("codigo").value;
-      const info = document.getElementById("info");
-
-      // Simulación: mapeo Dewey a ubicación
-      let fila = 1, col = 2;
-      if (codigo.startsWith("001")) {
-        fila = 1; col = 2;
-      } else if (codigo.startsWith("100")) {
-        fila = 2; col = 5;
-      } else if (codigo.startsWith("500")) {
-        fila = 3; col = 7;
-      }
-
-      limpiarBusqueda();
-
-      const target = document.getElementById(`F${fila}-A${col}`);
-      if (target) {
-        target.classList.add("highlight");
-        info.innerHTML = `📍 Libro encontrado en <b>Fila ${fila}</b>, Estante <b>A${col}</b>`;
-      } else {
-        info.textContent = "❌ No se encontró la ubicación.";
-      }
-    }
-
-    function limpiarBusqueda() {
-      document.querySelectorAll(".rect-anaquel").forEach(el => el.classList.remove("highlight"));
-      document.getElementById("info").textContent = "Ingresa un código Dewey y presiona Buscar.";
-    }
-  </script>
+  <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>
