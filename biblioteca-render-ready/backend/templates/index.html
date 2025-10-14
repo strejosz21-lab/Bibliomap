@@ -2,14 +2,11 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mapa Interactivo — Biblioteca</title>
 
-  <!-- Tailwind CDN (rápido, sin build) -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Fuse.js para búsqueda difusa (CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7"></script>
 
   <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 </head>
@@ -20,31 +17,37 @@
       <div class="max-w-7xl mx-auto px-4 py-4 flex items-center gap-4">
         <h1 class="text-2xl font-semibold">📚 Biblioteca MHC — Mapa Interactivo</h1>
         <p class="text-sm text-slate-500">Busca por número Dewey y te muestro dónde está.</p>
+        <div class="ml-auto flex items-center gap-3 text-sm">
+          <a href="/admin" class="text-slate-600 hover:text-slate-900">Admin</a>
+          <span class="text-slate-300">·</span>
+          <a href="/admin/mapedit" class="text-slate-600 hover:text-slate-900">Editor de mapa</a>
+        </div>
       </div>
     </header>
 
     <!-- Main -->
     <main class="flex-1 max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
       <!-- Left: Controles -->
-      <section class="col-span-1 lg:col-span-1 space-y-4">
+      <section class="col-span-1 space-y-4">
         <div class="bg-white p-4 rounded-xl shadow-sm">
           <label class="block text-sm font-medium text-slate-600">Buscar (ej. 001.42 o 001)</label>
           <div class="mt-2 flex gap-2">
-            <input id="searchInput" class="flex-1 border rounded-md px-3 py-2 focus:ring-2 focus:ring-orange-400" placeholder="Ej: 001.42 o '001' - soporta búsqueda parcial" aria-label="Buscar clasificación Dewey" />
+            <input id="searchInput" class="flex-1 border rounded-md px-3 py-2 focus:ring-2 focus:ring-orange-400"
+                   placeholder="Ej: 001.42 o '001' — soporta búsqueda parcial"
+                   aria-label="Buscar clasificación Dewey" />
             <button id="btnSearch" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md">Buscar</button>
             <button id="btnClear" class="bg-gray-100 px-3 py-2 rounded-md">Limpiar</button>
           </div>
 
           <div class="mt-3 text-sm text-slate-600" id="infoBox">Ingresa un código Dewey para buscar.</div>
+          <div id="resultChip" class="mt-2 hidden text-sm"></div>
         </div>
 
-        <!-- Matches / resultados -->
         <div class="bg-white p-4 rounded-xl shadow-sm" id="matchesBox" aria-live="polite">
           <h2 class="font-semibold mb-2">Resultados</h2>
           <ul id="matchesList" class="space-y-2 text-sm text-slate-700"></ul>
         </div>
 
-        <!-- Leyenda -->
         <div class="bg-white p-4 rounded-xl shadow-sm">
           <h2 class="font-semibold mb-2">Leyenda por sección (Dewey)</h2>
           <div id="legend" class="grid grid-cols-2 gap-2 text-sm"></div>
@@ -54,7 +57,8 @@
       <!-- Center: mapa -->
       <section class="col-span-2 bg-white rounded-xl shadow-sm p-3 overflow-hidden">
         <div class="flex items-center justify-between mb-2 gap-2">
-          <div class="text-sm text-slate-600">Mapa de estantes (arrastra para desplazar, usa botones para centrar)</div>
+          <div class="text-sm text-slate-600">Mapa de estantes (arrastra para desplazar, zoom con rueda, usa botones para centrar)</div>
+          <!-- Toolbar sticky dentro del contenedor -->
           <div class="flex gap-2">
             <button id="zoomIn" class="px-3 py-1 bg-slate-100 rounded">+</button>
             <button id="zoomOut" class="px-3 py-1 bg-slate-100 rounded">−</button>
@@ -62,11 +66,18 @@
           </div>
         </div>
 
-        <div id="svgContainer" class="border rounded-lg overflow-auto" style="height:620px; position:relative;">
-          <svg id="mapSvg" width="1600" height="1200" preserveAspectRatio="xMidYMid meet" tabindex="0" role="img" aria-label="Mapa de la biblioteca"></svg>
+        <div id="svgContainer" class="border rounded-lg overflow-hidden relative" style="height:620px;">
+          <svg id="mapSvg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Mapa de la biblioteca"></svg>
+
+          <!-- Botonera flotante (extra, opcional) -->
+          <div class="absolute top-3 right-3 z-40 flex gap-2">
+            <button id="zoomIn2" class="px-3 py-1 bg-white/90 border rounded shadow-sm">+</button>
+            <button id="zoomOut2" class="px-3 py-1 bg-white/90 border rounded shadow-sm">−</button>
+            <button id="fitAll2" class="px-3 py-1 bg-white/90 border rounded shadow-sm">Ajustar</button>
+          </div>
         </div>
 
-        <!-- Sidebar info (slide over) -->
+        <!-- Info flotante -->
         <aside id="sideInfo" class="fixed right-6 bottom-6 w-80 bg-white rounded-xl shadow-lg p-4 hidden z-50">
           <button id="closeSide" class="text-sm text-slate-500 float-right">Cerrar ×</button>
           <div id="sideContent" class="mt-2 text-sm text-slate-700"></div>
@@ -75,10 +86,17 @@
     </main>
 
     <footer class="text-center text-xs text-slate-400 py-4">
-      Mapa dinámico generado a partir de la base de datos. Diseño por tu equipo.
+      Mapa dinámico generado a partir de la base de datos.
     </footer>
   </div>
 
   <script src="{{ url_for('static', filename='main.js') }}"></script>
+  <script>
+    // Duplica los botones flotantes al mismo handler
+    ['zoomIn2','zoomOut2','fitAll2'].forEach(id=>{
+      const orig = {zoomIn:'zoomIn', zoomOut:'zoomOut', fitAll:'fitAll'}[id.replace('2','')];
+      document.getElementById(id)?.addEventListener('click', ()=> document.getElementById(orig).click());
+    });
+  </script>
 </body>
 </html>
