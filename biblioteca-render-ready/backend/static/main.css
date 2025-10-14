@@ -1,35 +1,83 @@
-/* main.css - estilos para mapa y efectos */
-/* Mantén Tailwind para layout; aquí van estilos específicos SVG/tooltip */
+/* --- main.css (versión pulida) --- */
+:root {
+  --fill-rack: #f3f4f6;           /* slate-100 */
+  --stroke-rack: #e6e9ef;         /* slate-200 */
+  --text-label: #1f2937;          /* slate-800 */
+  --hi-fill: #f97316;             /* orange-500 */
+  --hi-stroke: #c2410c;           /* orange-700 */
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #e6e9ef;
+  --shadow-hover: 0 6px 18px rgba(15,23,42,0.08);
+  --shadow-hi: 0 12px 30px rgba(249,115,22,0.18);
+  --radius: 8px;
+  --t-fast: 220ms;
+  --t-med: 320ms;
+}
 
+/* Dark mode opcional (añade .dark al <html> o <body>) */
+.dark {
+  --fill-rack: #0f172a;           /* slate-900 */
+  --stroke-rack: #1e293b;         /* slate-800 */
+  --text-label: #e5e7eb;          /* slate-200 */
+  --tooltip-bg: #0b1220;
+  --tooltip-border: #1e293b;
+}
+
+/* Contenedor del SVG (opcional si usas Tailwind para el layout) */
+#svgContainer { position: relative; width: 100%; height: 640px; }
+#svgContainer svg { width: 100%; height: 100%; display: block; }
+
+/* --- Estantes / anaqueles --- */
 .rect-anaquel {
-  fill: #f3f4f6;
-  stroke: #e6e9ef;
+  fill: var(--fill-rack);
+  stroke: var(--stroke-rack);
   stroke-width: 1;
-  rx: 8;
+  rx: var(--radius);
   cursor: pointer;
-  transition: transform 220ms ease, filter 220ms ease;
   transform-origin: center;
+  transition: transform var(--t-fast) ease, filter var(--t-fast) ease, fill var(--t-fast) ease, stroke var(--t-fast) ease;
+  /* mejora visual y legibilidad de trazo en SVG escalado */
+  vector-effect: non-scaling-stroke;
+  shape-rendering: geometricPrecision;
+  will-change: transform, filter;
 }
 
 .rect-anaquel:hover {
   transform: translateY(-4px);
-  filter: drop-shadow(0 6px 18px rgba(15,23,42,0.08));
+  filter: drop-shadow(var(--shadow-hover));
 }
 
+/* Estado activo / seleccionado (vía JS) */
+.rect-anaquel.is-active,
+.rect-anaquel[aria-current="true"] {
+  outline: 2px solid var(--hi-fill);
+  outline-offset: 2px;
+}
+
+/* Accesibilidad teclado */
+.rect-anaquel:focus-visible {
+  outline: 3px solid var(--hi-fill);
+  outline-offset: 3px;
+}
+
+/* Etiquetas dentro del SVG */
 .label {
   font-size: 12px;
-  fill: #1f2937; /* slate-800 */
-  pointer-events: none;
+  fill: var(--text-label);
   font-weight: 600;
+  pointer-events: none;
+  user-select: none;
 }
 
+/* --- Resaltado del resultado --- */
 .highlight {
-  fill: #f97316 !important;
-  stroke: #c2410c;
+  fill: var(--hi-fill) !important;
+  stroke: var(--hi-stroke);
   stroke-width: 1.6;
-  filter: drop-shadow(0 12px 30px rgba(249,115,22,0.18));
-  transition: all 320ms cubic-bezier(.2,.9,.3,1);
-  animation: pulse 1.6s infinite;
+  filter: drop-shadow(var(--shadow-hi));
+  transition: all var(--t-med) cubic-bezier(.2,.9,.3,1);
+  animation: pulse var(--t-med) infinite;
+  mix-blend-mode: multiply; /* mejora contraste sobre plano claro */
 }
 
 @keyframes pulse {
@@ -38,11 +86,20 @@
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* tooltip on body */
+/* Respeta preferencias del usuario */
+@media (prefers-reduced-motion: reduce) {
+  .rect-anaquel,
+  .highlight {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* --- Tooltip global --- */
 .tooltip {
   position: absolute;
-  background: white;
-  border: 1px solid #e6e9ef;
+  background: var(--tooltip-bg);
+  border: 1px solid var(--tooltip-border);
   padding: 8px 10px;
   border-radius: 10px;
   font-size: 13px;
@@ -51,8 +108,24 @@
   z-index: 60;
   max-width: 300px;
 }
+.tooltip::after {
+  content: "";
+  position: absolute;
+  left: 12px; bottom: -6px;
+  border: 6px solid transparent;
+  border-top-color: var(--tooltip-bg);
+  filter: drop-shadow(0 1px 0 var(--tooltip-border));
+}
 
-/* small responsive tweaks */
+/* Responsive pequeño */
 @media (max-width: 1024px) {
   #svgContainer { height: 520px !important; }
+}
+
+/* Utilidad A11y */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
