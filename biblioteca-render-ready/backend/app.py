@@ -11,16 +11,25 @@ DATA_DIR = BASE_DIR / "data"
 EXCEL_PATH = DATA_DIR / "Biblioteca MHC.xlsx"
 MAPCSV_PATH = DATA_DIR / "mapping.csv"
 
-# Si tus templates/static están en la RAÍZ del repo:
-app = Flask(__name__,
-            template_folder=str(PROJECT_ROOT / "templates"),
-            static_folder=str(PROJECT_ROOT / "static"))
-# Si los tienes dentro de backend/, usa: template_folder="templates", static_folder="static"
+# Autodetecta dónde están templates/static (raíz o backend/)
+CANDIDATE_TPL = [PROJECT_ROOT / "templates", BASE_DIR / "templates"]
+CANDIDATE_STA = [PROJECT_ROOT / "static",    BASE_DIR / "static"]
+TEMPLATES_DIR = next((p for p in CANDIDATE_TPL if p.exists()), CANDIDATE_TPL[0])
+STATIC_DIR    = next((p for p in CANDIDATE_STA if p.exists()), CANDIDATE_STA[0])
 
+app = Flask(__name__, template_folder=str(TEMPLATES_DIR), static_folder=str(STATIC_DIR))
 app.logger.setLevel(logging.INFO)
+
+# Logs de diagnóstico (útiles en Render)
+app.logger.info("Templates dir: %s (exists=%s)", TEMPLATES_DIR, TEMPLATES_DIR.exists())
+app.logger.info("Static dir: %s (exists=%s)", STATIC_DIR, STATIC_DIR.exists())
+
+# Asegura /backend/data exista (no falla al escribir/leer)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Utils Dewey ---
 NUM_RE = re.compile(r'\d+(?:[.,]\d+)?')
+SEP_RE = re.compile(r'\s*(?:-|–|—|->|→|hasta|a)\s*', flags=re.IGNORECASE)
 
 def extract_first_dewey_token(s):
     if s is None: return None
@@ -29,13 +38,11 @@ def extract_first_dewey_token(s):
     return m.group(0) if m else None
 
 def to_float(tok):
-    if not tok: return None
+    if tok is None: return None
     try:
-        return float(tok.replace(',', '.'))
+        return float(str(tok).replace(',', '.'))
     except Exception:
         return None
-
-SEP_RE = re.compile(r'\s*(?:-|–|—|->|→|hasta|a)\s*', flags=re.IGNORECASE)
 
 def parse_range_cell(cell_text):
     raw = "" if (cell_text is None or (isinstance(cell_text, float) and pd.isna(cell_text))) else str(cell_text).strip()
@@ -59,7 +66,8 @@ def load_locations_from_excel(path: Path):
     except Exception as e:
         return {"error":"excel_read_error", "details":str(e)}
 
-    cols = {c.strip(): c for c in sheet.columns}  # mapa nombre normalizado -> real
+    # FIX: normaliza a str para evitar AttributeError con columnas no-string
+    cols = {str(c).strip(): c for c in sheet.columns}
 
     def has(*names): return all(n in cols for n in names)
 
@@ -75,11 +83,10 @@ def load_locations_from_excel(path: Path):
             est   = int(r[cols["Estantería"]]) if not pd.isna(r[cols["Estantería"]]) else None
             ana   = int(r[cols["Anaquel"]]) if not pd.isna(r[cols["Anaquel"]]) else None
             raw   = str(r.get(cols.get("TextoOriginal",""), ""))
-            if start is None or end is None or est is None or ana is None: 
+            if start is None or end is None or est is None or ana is None:
                 continue
-            rows.append({"pasillo":pas, "lado":lado, "estanteria":est, "anaquel":ana,
+            rows.append({"pasillo":pas, "lado":lado or "A", "estanteria":est, "anaquel":ana,
                          "start":start, "end":end, "raw":raw})
-
     else:
         # --- Formato ANCHO (col 0 = estante; varias columnas "anaquel")
         estante_col = sheet.columns[0]
@@ -94,7 +101,7 @@ def load_locations_from_excel(path: Path):
             est = int(m.group(1)) if m else int(idx)+1
             for j, col in enumerate(anaquel_cols, start=1):
                 start, end, raw = parse_range_cell(r.get(col, ""))
-                if start is None or end is None: 
+                if start is None or end is None:
                     continue
                 rows.append({"pasillo":"", "lado":"A", "estanteria":est, "anaquel":j,
                              "start":start, "end":end, "raw":raw})
@@ -149,6 +156,10 @@ def health():
 
 @app.route("/")
 def index():
+    # Si no existe la plantilla, evita 500 y da pista en logs
+    idx = Path(app.template_folder) / "index.html"
+    if not idx.exists():
+        app.logger.error("index.html NO encontrado en %s", app.template_folder)
     return render_template("index.html")
 
 @app.get("/mapping.json")
@@ -177,6 +188,7 @@ def api_search():
         "bbox": bbox
     })
 
+# Nota: Flask ya sirve /static. Esta ruta explícita es opcional.
 @app.route('/static/<path:p>')
 def serve_static(p):
     return send_from_directory(app.static_folder, p)
