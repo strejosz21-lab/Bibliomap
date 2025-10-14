@@ -1,106 +1,186 @@
 # app.py
-from flask import Flask, render_template, jsonify, send_from_directory
+from flask import Flask, render_template, jsonify, send_from_directory, request
+from pathlib import Path
 import pandas as pd
-import re
-import os
-import logging
+import re, os, logging, csv
 
-# --- Config ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, "data", "Biblioteca MHC.xlsx")
+# --- Rutas base ---
+BASE_DIR = Path(__file__).resolve().parent            # .../Bibliomap/backend
+PROJECT_ROOT = BASE_DIR.parent                        # .../Bibliomap
+DATA_DIR = BASE_DIR / "data"
+EXCEL_PATH = DATA_DIR / "Biblioteca MHC.xlsx"
+MAPCSV_PATH = DATA_DIR / "mapping.csv"
 
-# Flask por defecto busca en "templates" y "static"
-app = Flask(__name__, template_folder="templates", static_folder="static")
+# Si tus templates/static están en la RAÍZ del repo:
+app = Flask(__name__,
+            template_folder=str(PROJECT_ROOT / "templates"),
+            static_folder=str(PROJECT_ROOT / "static"))
+# Si los tienes dentro de backend/, usa: template_folder="templates", static_folder="static"
+
 app.logger.setLevel(logging.INFO)
 
-# --- Utilities to parse Dewey-like numbers ---
+# --- Utils Dewey ---
+NUM_RE = re.compile(r'\d+(?:[.,]\d+)?')
+
 def extract_first_dewey_token(s):
-    if not isinstance(s, str):
-        return None
-    m = re.search(r'\d+(?:\.\d+)?', s)
+    if s is None: return None
+    s = str(s)
+    m = NUM_RE.search(s)
     return m.group(0) if m else None
 
-def dewey_to_float(tok):
-    if not tok:
-        return None
+def to_float(tok):
+    if not tok: return None
     try:
-        return float(tok)
+        return float(tok.replace(',', '.'))
     except Exception:
         return None
 
+SEP_RE = re.compile(r'\s*(?:-|–|—|->|→|hasta|a)\s*', flags=re.IGNORECASE)
+
 def parse_range_cell(cell_text):
-    raw = "" if pd.isna(cell_text) else str(cell_text).strip()
+    raw = "" if (cell_text is None or (isinstance(cell_text, float) and pd.isna(cell_text))) else str(cell_text).strip()
     if raw == "":
         return (None, None, raw)
-    parts = re.split(r'\s*-\s*', raw)
-    start_tok = extract_first_dewey_token(parts[0])
-    end_tok = extract_first_dewey_token(parts[-1]) if len(parts) > 1 else None
-    start = dewey_to_float(start_tok)
-    end = dewey_to_float(end_tok) if end_tok else start
+    parts = SEP_RE.split(raw)
+    start_tok = extract_first_dewey_token(parts[0]) if parts else None
+    end_tok   = extract_first_dewey_token(parts[-1]) if len(parts) > 1 else None
+    start = to_float(start_tok)
+    end   = to_float(end_tok) if end_tok else start
     if start is not None and end is not None and start > end:
         start, end = end, start
     return (start, end, raw)
 
-# --- Load Excel ---
-def load_mapping_from_excel(path=DATA_PATH):
-    if not os.path.exists(path):
-        app.logger.error(f"Excel not found at {path}")
-        return {"error": "excel_not_found", "path": path}
+# --- Carga mapping desde Excel (soporta formato "largo" y "ancho") ---
+def load_locations_from_excel(path: Path):
+    if not path.exists():
+        return {"error":"excel_not_found", "path":str(path)}
     try:
-        xl = pd.ExcelFile(path)
-        sheet = xl.parse(xl.sheet_names[0])
+        sheet = pd.ExcelFile(path).parse(0)
     except Exception as e:
-        app.logger.exception("Error reading Excel")
-        return {"error": "excel_read_error", "details": str(e)}
+        return {"error":"excel_read_error", "details":str(e)}
 
-    anaquel_cols = [c for c in sheet.columns if 'ANAQUEL' in str(c).upper() or 'ANAQUE' in str(c).upper()]
-    if not anaquel_cols:
-        anaquel_cols = list(sheet.columns[1:6])
+    cols = {c.strip(): c for c in sheet.columns}  # mapa nombre normalizado -> real
 
-    estante_col = sheet.columns[0]
+    def has(*names): return all(n in cols for n in names)
+
     rows = []
-    for idx, row in sheet.iterrows():
-        estante_label_raw = row[estante_col]
-        estante_num = None
-        if isinstance(estante_label_raw, str):
-            m = re.search(r'(\d+)', estante_label_raw)
-            if m:
-                estante_num = int(m.group(1))
-        if estante_num is None:
-            estante_num = int(idx) + 1
 
-        for j, col in enumerate(anaquel_cols, start=1):
-            cell = row[col] if col in row else ""
-            start, end, raw = parse_range_cell(cell)
-            rows.append({
-                "estante": estante_num,
-                "anaquel": j,
-                "raw": raw,
-                "start": start,
-                "end": end
-            })
+    if has("RangoInicio","RangoFin","Pasillo","Lado","Estantería","Anaquel"):
+        # --- Formato LARGO (una fila por rango)
+        for _, r in sheet.iterrows():
+            start = to_float(r[cols["RangoInicio"]])
+            end   = to_float(r[cols["RangoFin"]])
+            pas   = str(r[cols["Pasillo"]]).strip() if not pd.isna(r[cols["Pasillo"]]) else ""
+            lado  = str(r[cols["Lado"]]).strip() if not pd.isna(r[cols["Lado"]]) else "A"
+            est   = int(r[cols["Estantería"]]) if not pd.isna(r[cols["Estantería"]]) else None
+            ana   = int(r[cols["Anaquel"]]) if not pd.isna(r[cols["Anaquel"]]) else None
+            raw   = str(r.get(cols.get("TextoOriginal",""), ""))
+            if start is None or end is None or est is None or ana is None: 
+                continue
+            rows.append({"pasillo":pas, "lado":lado, "estanteria":est, "anaquel":ana,
+                         "start":start, "end":end, "raw":raw})
 
-    max_estante = max((r["estante"] for r in rows if r["estante"] is not None), default=0)
-    total_anaqueles = max((r["anaquel"] for r in rows), default=0)
-    return {"rows": rows, "max_estante": int(max_estante), "total_anaqueles": int(total_anaqueles)}
+    else:
+        # --- Formato ANCHO (col 0 = estante; varias columnas "anaquel")
+        estante_col = sheet.columns[0]
+        anaquel_cols = [c for c in sheet.columns if 'ANAQUEL' in str(c).upper() or 'ANAQUE' in str(c).upper()]
+        if not anaquel_cols:
+            # fallback a las primeras 5 columnas después de la primera
+            anaquel_cols = list(sheet.columns[1:6])
 
-MAPPING_CACHE = load_mapping_from_excel(DATA_PATH)
-app.logger.info("Mapping loaded: estantes=%s anaqueles=%s",
-                MAPPING_CACHE.get("max_estante"),
-                MAPPING_CACHE.get("total_anaqueles"))
+        for idx, r in sheet.iterrows():
+            est_raw = r[estante_col]
+            m = re.search(r'(\d+)', str(est_raw)) if isinstance(est_raw, str) else None
+            est = int(m.group(1)) if m else int(idx)+1
+            for j, col in enumerate(anaquel_cols, start=1):
+                start, end, raw = parse_range_cell(r.get(col, ""))
+                if start is None or end is None: 
+                    continue
+                rows.append({"pasillo":"", "lado":"A", "estanteria":est, "anaquel":j,
+                             "start":start, "end":end, "raw":raw})
 
-# --- Routes ---
+    # índices útiles
+    max_est = max((r["estanteria"] for r in rows), default=0)
+    max_ana = max((r["anaquel"] for r in rows), default=0)
+    return {"rows": rows, "max_estanteria": int(max_est), "max_anaquel": int(max_ana)}
+
+def load_map_areas(csv_path: Path):
+    """Lee mapping.csv con columnas: pasillo,lado,estanteria,anaquel,x0,y0,x1,y1"""
+    if not csv_path.exists():
+        return {}
+    areas = {}
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        rd = csv.DictReader(f)
+        for r in rd:
+            key = (str(r.get("pasillo","")).strip(),
+                   str(r.get("lado","A")).strip(),
+                   int(float(r.get("estanteria",0))),
+                   int(float(r.get("anaquel",0))))
+            try:
+                bbox = {k: float(r[k]) for k in ("x0","y0","x1","y1")}
+            except Exception:
+                continue
+            areas[key] = bbox
+    return areas
+
+LOC_CACHE = load_locations_from_excel(EXCEL_PATH)
+AREA_CACHE = load_map_areas(MAPCSV_PATH)
+
+app.logger.info("Excel: %s filas cargadas | map areas: %s",
+                len(LOC_CACHE.get("rows", [])), len(AREA_CACHE))
+
+# --- Helpers búsqueda ---
+def parse_dewey_query(q):
+    tok = extract_first_dewey_token(q)
+    return to_float(tok)
+
+def find_location(d):
+    for r in LOC_CACHE.get("rows", []):
+        if r["start"] is not None and r["end"] is not None and r["start"] <= d <= r["end"]:
+            key = (str(r["pasillo"]).strip(), str(r["lado"]).strip() or "A", r["estanteria"], r["anaquel"])
+            bbox = AREA_CACHE.get(key)
+            return r, bbox
+    return None, None
+
+# --- Rutas ---
+@app.get("/health")
+def health():
+    return "ok", 200
+
 @app.route("/")
 def index():
     return render_template("index.html")
 
-@app.route("/mapping.json")
+@app.get("/mapping.json")
 def mapping_json():
-    return jsonify(MAPPING_CACHE)
+    return jsonify(LOC_CACHE)
+
+@app.get("/api/search")
+def api_search():
+    q = request.args.get("dewey", "")
+    d = parse_dewey_query(q)
+    if d is None:
+        return jsonify({"ok": False, "error": "Número Dewey inválido"}), 400
+    r, bbox = find_location(d)
+    if not r:
+        return jsonify({"ok": True, "found": False})
+    return jsonify({
+        "ok": True, "found": True,
+        "location": {
+            "pasillo": r["pasillo"],
+            "lado": r["lado"] or "A",
+            "estanteria": r["estanteria"],
+            "anaquel": r["anaquel"],
+            "rango": [r["start"], r["end"]],
+            "raw": r.get("raw","")
+        },
+        "bbox": bbox
+    })
 
 @app.route('/static/<path:p>')
 def serve_static(p):
     return send_from_directory(app.static_folder, p)
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host="0.0.0.0", port=port)
