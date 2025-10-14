@@ -1,1 +1,176 @@
-<!doctype html><html><head><meta charset="utf-8"/><title>Admin</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-white p-6 text-gray-800"><div class="max-w-3xl mx-auto bg-white p-6 rounded shadow"><h1 class="text-xl font-semibold mb-4">Admin — Importar datos</h1>{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat,msg in messages %}<div class="p-2 mb-2 rounded {{ 'bg-green-100' if cat=='success' else 'bg-red-100' }}">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}<form method="post" enctype="multipart/form-data"><label class="block mb-2">Subir Excel (opcional)</label><input type="file" name="excel_file" class="mb-4"/><label class="block mb-2">Subir mapping.csv (opcional)</label><input type="file" name="mapping_file" class="mb-4"/><div class="flex gap-2"><button class="bg-orange-500 text-white px-4 py-2 rounded">Subir y Reimportar</button><a href="/" class="px-4 py-2 border rounded">Volver</a></div></form><div class="mt-4 text-sm text-gray-600"><p>Excel presente: {{ 'Sí' if excel_exists else 'No' }}</p><p>Mapping presente: {{ 'Sí' if mapping_exists else 'No' }}</p></div></div></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin — Importar datos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <main class="max-w-4xl mx-auto p-6">
+    <header class="mb-6 flex items-center justify-between">
+      <h1 class="text-2xl font-semibold">Admin — Importar datos</h1>
+      <a href="/" class="text-sm text-slate-500 hover:text-slate-700">← Volver al mapa</a>
+    </header>
+
+    <!-- Estado actual -->
+    <section class="grid sm:grid-cols-3 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="text-xs text-slate-500">Excel presente</div>
+        <div class="mt-1 text-lg font-semibold">
+          {{ 'Sí' if excel_exists else 'No' }}
+        </div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="text-xs text-slate-500">mapping.csv presente</div>
+        <div class="mt-1 text-lg font-semibold">
+          {{ 'Sí' if mapping_exists else 'No' }}
+        </div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-4">
+        <div class="text-xs text-slate-500">Filas / Zonas cargadas</div>
+        <div class="mt-1 text-lg font-semibold">
+          {{ rows_count|default('—') }} / {{ areas_count|default('—') }}
+        </div>
+      </div>
+    </section>
+
+    <!-- Formulario -->
+    <section class="bg-white rounded-xl shadow-sm p-6">
+      <form id="uploadForm" method="post" enctype="multipart/form-data" class="space-y-4">
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="md:col-span-1">
+            <label for="token" class="block text-sm font-medium text-slate-700">ADMIN_TOKEN</label>
+            <input id="token" type="password" class="mt-1 w-full border rounded-md px-3 py-2" placeholder="Requerido para subir" required />
+            <p class="mt-1 text-xs text-slate-500">Se envía en cabecera <code>X-ADMIN-TOKEN</code>.</p>
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-700">Archivos</label>
+
+            <!-- Dropzone -->
+            <div id="drop" class="mt-1 border-2 border-dashed rounded-lg p-4 text-sm text-slate-500 bg-slate-50/50 hover:bg-slate-50 transition">
+              Arrastra y suelta aquí los archivos o
+              <label for="excel" class="underline cursor-pointer">selecciónalos</label>.
+              <div class="mt-3 grid sm:grid-cols-2 gap-3">
+                <div>
+                  <div class="text-xs font-medium text-slate-600 mb-1">Excel (.xlsx) <span class="text-slate-400">(opcional)</span></div>
+                  <input id="excel" name="excel_file" type="file" accept=".xlsx" class="w-full text-sm" />
+                  <div id="excelMeta" class="mt-1 text-xs text-slate-500"></div>
+                </div>
+                <div>
+                  <div class="text-xs font-medium text-slate-600 mb-1">mapping.csv <span class="text-slate-400">(opcional)</span></div>
+                  <input id="mapping" name="mapping_file" type="file" accept=".csv" class="w-full text-sm" />
+                  <div id="mappingMeta" class="mt-1 text-xs text-slate-500"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progreso + acciones -->
+        <div class="flex items-center gap-3 pt-2">
+          <button class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md" type="submit">
+            Subir y Reimportar
+          </button>
+          <button id="clearBtn" class="px-4 py-2 border rounded-md" type="button">Limpiar</button>
+          <span id="status" class="text-sm text-slate-600"></span>
+        </div>
+
+        <div id="progressWrap" class="hidden mt-2">
+          <div class="h-2 w-full bg-slate-200 rounded">
+            <div id="bar" class="h-2 bg-orange-500 rounded" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Fallback de mensajes de Flask (si usas flash en POST /admin) -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="mt-4 space-y-2">
+            {% for cat,msg in messages %}
+              <div class="p-2 rounded {{ 'bg-green-100 text-green-800' if cat=='success' else 'bg-red-100 text-red-800' }}">{{ msg }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% endwith %}
+      </form>
+
+      <div class="mt-6 text-xs text-slate-500">
+        <p>Formato Excel soportado:</p>
+        <ul class="list-disc ml-5">
+          <li><strong>Largo</strong>: RangoInicio, RangoFin, Pasillo, Lado, Estantería, Anaquel.</li>
+          <li><strong>Ancho</strong>: 1ª columna Estante, columnas “Anaquel …”.</li>
+        </ul>
+        <p class="mt-2">Puedes dibujar zonas del plano en <a href="/admin/mapedit" class="underline">Editor de mapa</a>.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+  // Helpers
+  const $ = s => document.querySelector(s);
+  const excel = $('#excel'), mapping = $('#mapping'), statusEl = $('#status');
+  const bar = $('#bar'), progressWrap = $('#progressWrap');
+
+  function meta(el, target){
+    const f = el.files?.[0];
+    $(target).textContent = f ? `${f.name} — ${(f.size/1024).toFixed(1)} KB` : '';
+  }
+  excel.addEventListener('change', ()=> meta(excel, '#excelMeta'));
+  mapping.addEventListener('change', ()=> meta(mapping, '#mappingMeta'));
+
+  // Drag & drop
+  const drop = document.getElementById('drop');
+  ;['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('ring-2','ring-orange-400'); }));
+  ;['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('ring-2','ring-orange-400'); }));
+  drop.addEventListener('drop', (e)=>{
+    const files = [...e.dataTransfer.files];
+    const xlsx = files.find(f => /\.xlsx$/i.test(f.name));
+    const csv  = files.find(f => /\.csv$/i.test(f.name));
+    if (xlsx) { excel.files = new DataTransfer().files; const dt = new DataTransfer(); dt.items.add(xlsx); excel.files = dt.files; meta(excel, '#excelMeta'); }
+    if (csv)  { mapping.files = new DataTransfer().files; const dt2 = new DataTransfer(); dt2.items.add(csv); mapping.files = dt2.files; meta(mapping, '#mappingMeta'); }
+  });
+
+  // Subida por API (con fallback a submit normal si falla)
+  document.getElementById('uploadForm').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const token = document.getElementById('token').value.trim();
+    if (!token){ statusEl.textContent = 'Ingresa ADMIN_TOKEN.'; return; }
+
+    const fd = new FormData();
+    if (excel.files[0]) fd.append('excel', excel.files[0]);
+    if (mapping.files[0]) fd.append('mapping', mapping.files[0]);
+
+    // barra de progreso (best-effort)
+    progressWrap.classList.remove('hidden'); bar.style.width = '10%'; statusEl.textContent = 'Subiendo…';
+
+    try{
+      const resp = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {'X-ADMIN-TOKEN': token},
+        body: fd
+      });
+      const j = await resp.json();
+      if (!resp.ok || !j.ok){ throw new Error(j.error || 'Error al importar'); }
+
+      bar.style.width = '100%';
+      statusEl.textContent = `✅ Importado. Filas: ${j.rows} | Zonas: ${j.areas}`;
+      // refrescar contadores sin recargar (best-effort)
+      setTimeout(()=>{ progressWrap.classList.add('hidden'); bar.style.width='0%'; }, 1200);
+    }catch(err){
+      statusEl.textContent = '❌ ' + (err.message || 'Error de red');
+      progressWrap.classList.add('hidden'); bar.style.width='0%';
+    }
+  });
+
+  // Limpiar
+  document.getElementById('clearBtn').addEventListener('click', ()=>{
+    excel.value = ''; mapping.value = '';
+    document.getElementById('excelMeta').textContent = '';
+    document.getElementById('mappingMeta').textContent = '';
+    statusEl.textContent = '';
+    progressWrap.classList.add('hidden'); bar.style.width='0%';
+  });
+  </script>
+</body>
+</html>
