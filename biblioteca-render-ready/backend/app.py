@@ -8,8 +8,8 @@ import re, os, logging, csv, secrets
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Buscar automáticamente el Excel más reciente
 EXCEL_PATH = next((p for p in DATA_DIR.glob("Biblioteca_MHC*.xlsx")), DATA_DIR / "Biblioteca_MHC.xlsx")
 MAPCSV_PATH = DATA_DIR / "mapping.csv"
 
@@ -31,7 +31,6 @@ app.config.update(
 app.logger.setLevel(logging.INFO)
 app.logger.info(f"📁 Templates: {TEMPLATES_DIR} (exists={TEMPLATES_DIR.exists()})")
 app.logger.info(f"📁 Static   : {STATIC_DIR} (exists={STATIC_DIR.exists()})")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # === Expresiones regulares ===
 NUM_RE = re.compile(r'\d+(?:[.,]\d+)?')
@@ -78,7 +77,6 @@ def load_locations_from_excel(path: Path):
         app.logger.error(f"❌ Error leyendo Excel: {e}")
         return {"rows": [], "max_estanteria": 0, "max_anaquel": 0}
 
-    # Normalizar nombres de columnas
     df.columns = [str(c).strip().title() for c in df.columns]
     cols = {c.lower(): c for c in df.columns}
     rows = []
@@ -116,11 +114,30 @@ def load_locations_from_excel(path: Path):
     app.logger.info(f"📘 Cargadas {len(rows)} filas desde {path.name}")
     return {"rows": rows, "max_estanteria": int(max_est), "max_anaquel": int(max_ana)}
 
+# === Crear mapping.csv si no existe ===
+def create_default_mapping(path: Path):
+    app.logger.warning("⚠️ mapping.csv no encontrado, creando plantilla básica...")
+    with open(path, "w", newline='', encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["pasillo","lado","estanteria","anaquel","x0","y0","x1","y1"])
+        writer.writeheader()
+        for e in range(1, 7):
+            for a in range(1, 6):
+                writer.writerow({
+                    "pasillo": "P1",
+                    "lado": "A",
+                    "estanteria": e,
+                    "anaquel": a,
+                    "x0": e*10,
+                    "y0": a*10,
+                    "x1": e*10+5,
+                    "y1": a*10+5
+                })
+    app.logger.info(f"🆕 mapping.csv creado en {path}")
+
 # === Carga del CSV de mapa ===
 def load_map_areas(csv_path: Path):
     if not csv_path.exists():
-        app.logger.warning(f"⚠️ mapping.csv no encontrado: {csv_path}")
-        return {}
+        create_default_mapping(csv_path)
     areas = {}
     with open(csv_path, newline='', encoding='utf-8-sig') as f:
         for r in csv.DictReader(f):
@@ -189,4 +206,3 @@ def serve_static(p):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
-
