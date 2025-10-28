@@ -8,7 +8,9 @@ import re, os, logging, csv, secrets
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 DATA_DIR = BASE_DIR / "data"
-EXCEL_PATH = DATA_DIR / "Biblioteca_MHC_corregido.xlsx"   # ✅ corregido
+
+# Detecta automáticamente la base más reciente
+EXCEL_PATH = next((p for p in DATA_DIR.glob("Biblioteca_MHC*.xlsx")), DATA_DIR / "Biblioteca_MHC.xlsx")
 MAPCSV_PATH = DATA_DIR / "mapping.csv"
 
 # --- Inicialización Flask ---
@@ -72,19 +74,20 @@ def parse_range_cell(cell_text):
 # === Carga de datos ===
 def load_locations_from_excel(path: Path):
     if not path.exists():
-        return {"error": "excel_not_found", "path": str(path)}
+        app.logger.warning(f"⚠️ Excel no encontrado: {path}")
+        return {"rows": [], "max_estanteria": 0, "max_anaquel": 0}
     try:
         df = pd.ExcelFile(path).parse(0)
     except Exception as e:
-        return {"error": "excel_read_error", "details": str(e)}
+        app.logger.error(f"❌ Error leyendo Excel: {e}")
+        return {"rows": [], "max_estanteria": 0, "max_anaquel": 0}
 
     cols = {str(c).strip(): c for c in df.columns}
     rows = []
-
     def has(*names): return all(n in cols for n in names)
 
     if has("RangoInicio", "RangoFin", "Pasillo", "Lado", "Estantería", "Anaquel"):
-        # --- Formato LARGO ---
+        # --- Formato largo (3D) ---
         for _, r in df.iterrows():
             start = to_float(r[cols["RangoInicio"]])
             end   = to_float(r[cols["RangoFin"]])
@@ -93,15 +96,15 @@ def load_locations_from_excel(path: Path):
             est   = int(r[cols["Estantería"]]) if not pd.isna(r[cols["Estantería"]]) else None
             ana   = int(r[cols["Anaquel"]])    if not pd.isna(r[cols["Anaquel"]])    else None
             raw   = str(r.get(cols.get("TextoOriginal", ""), ""))
-            if (start is None) or (end is None) or (est is None) or (ana is None):
+            if None in (start, end, est, ana):
                 continue
             rows.append({
-                "pasillo": pas, "lado": (lado or "A"),
+                "pasillo": pas, "lado": lado or "A",
                 "estanteria": est, "anaquel": ana,
                 "start": start, "end": end, "raw": raw
             })
     else:
-        # --- Formato ANCHO ---
+        # --- Formato ancho (2D) ---
         est_col  = df.columns[0]
         ana_cols = [c for c in df.columns if 'ANAQUEL' in str(c).upper()]
         if not ana_cols:
@@ -112,7 +115,7 @@ def load_locations_from_excel(path: Path):
             est = int(m.group(1)) if m else (idx + 1)
             for j, col in enumerate(ana_cols, start=1):
                 start, end, raw = parse_range_cell(r.get(col, ""))
-                if (start is None) or (end is None):
+                if None in (start, end):
                     continue
                 rows.append({
                     "pasillo": "", "lado": "A",
@@ -125,30 +128,30 @@ def load_locations_from_excel(path: Path):
     return {"rows": rows, "max_estanteria": int(max_est), "max_anaquel": int(max_ana)}
 
 def load_map_areas(csv_path: Path):
-    """mapping.csv: pasillo,lado,estanteria,anaquel,x0,y0,x1,y1 (valores 0..1 o px)"""
     if not csv_path.exists():
+        app.logger.warning(f"⚠️ mapping.csv no encontrado: {csv_path}")
         return {}
     areas = {}
-    with open(csv_path, newline='', encoding='utf-8') as f:
+    with open(csv_path, newline='', encoding='utf-8-sig') as f:
         for r in csv.DictReader(f):
             try:
                 pas   = (r.get("pasillo","") or "").strip()
                 lado  = (r.get("lado","A") or "A").strip()
                 est   = int(float(r.get("estanteria", 0)))
-                ana   = int(float(r.get("anaquel",    0)))
+                ana   = int(float(r.get("anaquel", 0)))
                 bbox  = {k: float(r[k]) for k in ("x0","y0","x1","y1")}
                 areas[(pas, lado, est, ana)] = bbox
             except Exception:
                 continue
     return areas
 
-# === Cache global ===
+# === Cache inicial ===
 LOC_CACHE  = load_locations_from_excel(EXCEL_PATH)
 AREA_CACHE = load_map_areas(MAPCSV_PATH)
-app.logger.info("Excel filas: %s | Áreas de mapa: %s",
+app.logger.info("✅ Excel filas: %s | Áreas de mapa: %s",
                 len(LOC_CACHE.get("rows", [])), len(AREA_CACHE))
 
-# === Utilidades ===
+# === Funciones de búsqueda ===
 def _parse_est_list(s):
     if not s: return None
     out = []
@@ -165,8 +168,7 @@ def _parse_est_list(s):
 def _filter_rows(rows, est_in=None, pasillo=None, lado=None):
     r = rows
     if est_in:
-        estset = set(est_in)
-        r = [x for x in r if x.get("estanteria") in estset]
+        r = [x for x in r if x.get("estanteria") in set(est_in)]
     if pasillo not in (None, ""):
         r = [x for x in r if str(x.get("pasillo","")) == str(pasillo)]
     if lado not in (None, ""):
@@ -178,11 +180,9 @@ def parse_dewey_query(q):
     return to_float(tok)
 
 def find_location_in_rows(rows, d):
-    """Busca dentro de un subconjunto de filas ya filtradas."""
     for r in rows:
         s, e = r.get("start"), r.get("end")
-        if (s is None) or (e is None): 
-            continue
+        if None in (s, e): continue
         if (s - EPS) <= d <= (e + EPS):
             key = (str(r.get("pasillo","")).strip(),
                    str(r.get("lado","A") or "A").strip(),
@@ -206,8 +206,7 @@ def mapping_json():
     pasillo = request.args.get("pasillo")
     lado    = request.args.get("lado")
 
-    all_rows = LOC_CACHE.get("rows", [])
-    rows = _filter_rows(all_rows, est_in=est_in, pasillo=pasillo, lado=lado)
+    rows = _filter_rows(LOC_CACHE.get("rows", []), est_in=est_in, pasillo=pasillo, lado=lado)
     max_est = max((r["estanteria"] for r in rows), default=0)
     max_ana = max((r["anaquel"]    for r in rows), default=0)
     return jsonify({"rows": rows, "max_estanteria": int(max_est), "max_anaquel": int(max_ana)})
@@ -218,12 +217,10 @@ def api_search():
     d = parse_dewey_query(q)
     if d is None:
         return jsonify({"ok": False, "error": "Número Dewey inválido"}), 400
-
     est_in  = _parse_est_list(request.args.get("est") or os.getenv("DEFAULT_ESTANTERIAS",""))
     pasillo = request.args.get("pasillo")
     lado    = request.args.get("lado")
     rows = _filter_rows(LOC_CACHE.get("rows", []), est_in=est_in, pasillo=pasillo, lado=lado)
-
     r, bbox = find_location_in_rows(rows, d)
     if not r:
         return jsonify({"ok": True, "found": False})
@@ -231,11 +228,11 @@ def api_search():
 
 @app.post("/api/reload")
 def api_reload():
-    """Recarga Excel y CSV sin reiniciar (útil en Render)."""
+    """Recarga Excel y CSV sin reiniciar."""
     global LOC_CACHE, AREA_CACHE
     LOC_CACHE  = load_locations_from_excel(EXCEL_PATH)
     AREA_CACHE = load_map_areas(MAPCSV_PATH)
-    app.logger.info("Recargado Excel y mapping.csv")
+    app.logger.info("♻️ Recargado Excel y mapping.csv")
     return jsonify({"ok": True, "rows": len(LOC_CACHE.get('rows', [])), "areas": len(AREA_CACHE)})
 
 @app.route('/static/<path:p>')
