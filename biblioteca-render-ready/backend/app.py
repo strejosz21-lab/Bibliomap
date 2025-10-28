@@ -8,7 +8,7 @@ import re, os, logging, csv, secrets
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 DATA_DIR = BASE_DIR / "data"
-EXCEL_PATH = DATA_DIR / "Biblioteca MHC.xlsx"
+EXCEL_PATH = DATA_DIR / "Biblioteca_MHC_corregido.xlsx"   # ✅ corregido
 MAPCSV_PATH = DATA_DIR / "mapping.csv"
 
 # --- Inicialización Flask ---
@@ -29,8 +29,8 @@ app.config.update(
 
 # --- Logging ---
 app.logger.setLevel(logging.INFO)
-app.logger.info("📂 Templates: %s (exists=%s)", TEMPLATES_DIR, TEMPLATES_DIR.exists())
-app.logger.info("📂 Static    : %s (exists=%s)", STATIC_DIR, STATIC_DIR.exists())
+app.logger.info("Templates: %s (exists=%s)", TEMPLATES_DIR, TEMPLATES_DIR.exists())
+app.logger.info("Static   : %s (exists=%s)", STATIC_DIR, STATIC_DIR.exists())
 
 # --- Asegura carpeta data ---
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -145,10 +145,10 @@ def load_map_areas(csv_path: Path):
 # === Cache global ===
 LOC_CACHE  = load_locations_from_excel(EXCEL_PATH)
 AREA_CACHE = load_map_areas(MAPCSV_PATH)
-app.logger.info("✅ Excel filas: %s | áreas de mapa: %s",
+app.logger.info("Excel filas: %s | Áreas de mapa: %s",
                 len(LOC_CACHE.get("rows", [])), len(AREA_CACHE))
 
-# === Filtros de filas (estanterías) ===
+# === Utilidades ===
 def _parse_est_list(s):
     if not s: return None
     out = []
@@ -173,7 +173,6 @@ def _filter_rows(rows, est_in=None, pasillo=None, lado=None):
         r = [x for x in r if (str(x.get("lado","A")) or "A").upper() == str(lado).upper()]
     return r
 
-# === Búsqueda Dewey ===
 def parse_dewey_query(q):
     tok = extract_first_dewey_token(q)
     return to_float(tok)
@@ -202,8 +201,7 @@ def index():
 
 @app.get("/mapping.json")
 def mapping_json():
-    # Filtro por estanterías/pasillo/lado
-    est_qs  = request.args.get("est") or os.getenv("DEFAULT_ESTANTERIAS","")  # ej: "3,4,5,6"
+    est_qs  = request.args.get("est") or os.getenv("DEFAULT_ESTANTERIAS","")
     est_in  = _parse_est_list(est_qs)
     pasillo = request.args.get("pasillo")
     lado    = request.args.get("lado")
@@ -221,7 +219,6 @@ def api_search():
     if d is None:
         return jsonify({"ok": False, "error": "Número Dewey inválido"}), 400
 
-    # respetar el mismo filtro que mapping.json
     est_in  = _parse_est_list(request.args.get("est") or os.getenv("DEFAULT_ESTANTERIAS",""))
     pasillo = request.args.get("pasillo")
     lado    = request.args.get("lado")
@@ -238,15 +235,12 @@ def api_reload():
     global LOC_CACHE, AREA_CACHE
     LOC_CACHE  = load_locations_from_excel(EXCEL_PATH)
     AREA_CACHE = load_map_areas(MAPCSV_PATH)
-    app.logger.info("♻️ Recargado Excel y mapping.csv")
+    app.logger.info("Recargado Excel y mapping.csv")
     return jsonify({"ok": True, "rows": len(LOC_CACHE.get('rows', [])), "areas": len(AREA_CACHE)})
 
 @app.route('/static/<path:p>')
 def serve_static(p):
-    # Flask ya sirve /static, esta ruta explicita ayuda si usas reverse proxy
     return send_from_directory(app.static_folder, p)
 
-# === Main ===
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(debug=(os.getenv("FLASK_ENV") != "production"), host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
